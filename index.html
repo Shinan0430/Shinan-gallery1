@@ -327,6 +327,232 @@
 
 <script>
 const SUPABASE_URL = 'https://eilvdnrjoshikbmtfjzy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_fw5dTeKCmfQQdeIy3Y_Teg_q0MuTH0l';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const PASS = '0430';
+const PAGE_SIZE = 50;
+let isAdmin = false;
+let showPrivate = false;
+let items = [];
+let editingId = null;
+let pendingImageFile = null;
+let pendingIpvFile = null;
+let currentDetailItem = null;
+let currentPage = 0;
+
+async function init() {
+  await loadItems();
+}
+
+async function loadItems() {
+  let query = sb.from('artworks').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
+  if (isAdmin && showPrivate) {
+    query = query.eq('is_private', true);
+  } else {
+    query = query.or('is_private.is.null,is_private.eq.false');
+  }
+  const { data, error } = await query;
+  if (error) { console.error(error); document.getElementById('gallery').innerHTML = '<div class="empty-state">読み込みに失敗しました</div>'; return; }
+  items = data || [];
+  currentPage = 0;
+  render();
+}
+
+function getFiltered() {
+  const titleWords = document.getElementById('searchTitle').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t.replace(/^#/, '')).filter(Boolean);
+  const from = document.getElementById('searchFrom').value;
+  const to = document.getElementById('searchTo').value;
+  return ard:hover .card-tags { opacity: 1; }
+  .detail-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tags-input-wrap { position: relative; }
+  .tags-input-wrap textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: 'DM Mono', monospace; font-size: .8rem; border-radius: 2px; outline: none; transition: border-color .2s; resize: vertical; min-height: 70px; }
+  .tags-input-wrap textarea:focus { border-color: var(--accent2); }
+  .tags-hint { font-family: 'DM Mono', monospace; font-size: .6rem; color: var(--muted); margin-top: 4px; }
+  #saveStatus { font-family: 'DM Mono', monospace; font-size: .7rem; color: var(--accent2); margin-right: 10px; display: none; }
+
+  .btn.private-mode { border-color: #7a5c8a; color: #b57fc4; }
+  .btn.private-mode:hover { border-color: #b57fc4; color: #d4a0e0; }
+  .btn.private-mode.active { background: #7a5c8a; color: #f0e8f5; border-color: #7a5c8a; }
+  .btn.private-mode.active:hover { background: #9b6fb0; border-color: #9b6fb0; }
+
+  .private-badge {
+    position: absolute; top: 8px; left: 8px;
+    font-family: 'DM Mono', monospace; font-size: .58rem; letter-spacing: .1em;
+    background: rgba(122,92,138,.75); color: #e8d0f0;
+    border: 1px solid rgba(181,127,196,.5); border-radius: 2px;
+    padding: 2px 7px; backdrop-filter: blur(4px);
+  }
+
+  .page-title-wrap { display: flex; align-items: center; gap: 16px; margin-bottom: 40px; }
+  .page-title-wrap .page-title { margin-bottom: 0; }
+  #privateModeIndicator {
+    display: none; font-family: 'DM Mono', monospace; font-size: .6rem; letter-spacing: .15em;
+    color: #b57fc4; border: 1px solid #7a5c8a; padding: 3px 10px; border-radius: 2px;
+  }
+
+  .checkbox-field { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; cursor: pointer; }
+  .checkbox-field input[type=checkbox] { width: 16px; height: 16px; accent-color: #9b6fb0; cursor: pointer; flex-shrink: 0; }
+  .checkbox-field span { font-family: 'DM Mono', monospace; font-size: .7rem; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">GALLERY</div>
+  <div class="header-right">
+    <span id="saveStatus"></span>
+    <span id="adminBadge">ADMIN MODE</span>
+    <button class="btn private-mode" id="privateViewBtn" onclick="togglePrivateMode()" style="display:none">🔒 非公開</button>
+    <button class="btn" id="adminToggleBtn" onclick="openPasswordModal()">管理者ログイン</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-title-wrap">
+    <div class="page-title" id="pageTitleText">作品一覧</div>
+    <span id="privateModeIndicator">🔒 PRIVATE</span>
+  </div>
+  <button class="search-toggle" id="searchToggle" onclick="toggleSearch()">
+    <span class="arrow">▼</span> 検索・絞り込み
+  </button>
+  <div class="search-bar" id="searchBar">
+    <label>タイトル</label>
+    <input type="text" id="searchTitle" placeholder="キーワード" oninput="applyFilter()">
+    <label>タグ</label>
+    <input type="text" id="searchTag" placeholder="#VOICEROID" oninput="applyFilter()">
+    <label>日付</label>
+    <input type="date" id="searchFrom" onchange="applyFilter()">
+    <span class="sep">〜</span>
+    <input type="date" id="searchTo" onchange="applyFilter()">
+    <button class="search-clear" onclick="clearFilter()">✕ クリア</button>
+    <span class="search-count" id="searchCount"></span>
+  </div>
+  <div id="tagFilterWrap" style="display:none;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <span style="font-family:'DM Mono',monospace;font-size:.6rem;color:var(--muted);letter-spacing:.1em">TAGS:</span>
+    <div id="tagFilterChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+  <div id="gallery"><div class="empty-state">読み込み中...</div></div>
+  <div class="pagination" id="pagination" style="display:none">
+    <button id="prevBtn" onclick="changePage(-1)">←</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn" onclick="changePage(1)">→</button>
+  </div>
+</main>
+
+<button class="btn primary" id="addBtn" onclick="openAddModal()" style="display:none;position:fixed;bottom:40px;right:48px;z-index:150">＋ 画像を追加</button>
+
+<!-- パスワードモーダル -->
+<div class="modal-bg" id="pwModal">
+  <div class="modal" style="max-width:360px">
+    <button class="modal-close" onclick="closeModal('pwModal')">×</button>
+    <h2>管理者ログイン</h2>
+    <div class="field">
+      <label>パスワード</label>
+      <input type="password" id="pwInput" placeholder="****" onkeydown="if(event.key==='Enter')checkPw()">
+      <div id="pwError">パスワードが違います</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('pwModal')">キャンセル</button>
+      <button class="btn primary" onclick="checkPw()">ログイン</button>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細モーダル -->
+<div class="modal-bg" id="detailModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('detailModal')">×</button>
+    <img id="detailImg" src="" alt="">
+    <div class="detail-body">
+      <div style="margin-bottom:8px"><span id="detailPrivateBadge" style="display:none;font-family:'DM Mono',monospace;font-size:.65rem;letter-spacing:.12em;background:rgba(122,92,138,.4);color:#d4a0e0;border:1px solid #7a5c8a;border-radius:2px;padding:3px 10px">🔒 非公開</span></div>
+      <div class="detail-title" id="detailTitle"></div>
+      <div class="detail-meta">
+        <div class="meta-item">
+          <div class="meta-label">日付</div>
+          <div class="meta-value" id="detailDate"></div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">制作時間</div>
+          <div class="meta-value" id="detailTime"></div>
+        </div>
+      </div>
+      <div class="detail-desc" id="detailDesc"></div>
+      <div id="detailTags" class="detail-tags"></div>
+      <div id="detailIpvWrap" style="display:none;margin-top:20px">
+        <button class="btn primary" onclick="downloadIpv()">⬇ .ipv をダウンロード</button>
+      </div>
+      <div id="detailEditWrap" style="display:none;margin-top:12px">
+        <button class="btn" onclick="closeModal('detailModal');openEditModal(currentDetailItem.id)">✎ 編集</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 追加・編集モーダル -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('editModal')">×</button>
+    <h2 id="editModalTitle">画像を追加</h2>
+
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()" id="uploadArea">
+      <input type="file" id="fileInput" accept="image/*" onchange="previewFile(event)">
+      <div class="up-label">クリックして画像を選択</div>
+      <img id="previewImg" src="" alt="">
+    </div>
+
+    <div class="field">
+      <label>タイトル</label>
+      <input type="text" id="editTitle" placeholder="空白にすると無題N">
+    </div>
+    <div class="field">
+      <label>日付</label>
+      <input type="date" id="editDate">
+    </div>
+    <div class="field">
+      <label>制作時間</label>
+      <input type="text" id="editHours" placeholder="例：3時間30分">
+    </div>
+    <div class="field">
+      <label>メモ・説明</label>
+      <textarea id="editDesc" placeholder="作品についての説明など"></textarea>
+    </div>
+    <div class="field">
+      <label>タグ</label>
+      <div class="tags-input-wrap">
+        <textarea id="editTags" placeholder="VOICEROID&#10;結月ゆかり&#10;イラスト"></textarea>
+        <div class="tags-hint">1行1タグ（#は自動でつきます）</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>アイビスペイントファイル (.ipv)</label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="file" id="ipvFileInput" accept=".ipv" style="display:none" onchange="handleIpvFile(event)">
+        <button class="btn" type="button" onclick="document.getElementById('ipvFileInput').click()">ファイルを選択</button>
+        <span id="ipvFileName" style="font-family:'DM Mono',monospace;font-size:.7rem;color:var(--muted)">未選択</span>
+        <button class="btn" type="button" id="ipvDownloadBtn" onclick="downloadIpvFromEdit()" style="display:none">⬇ DL</button>
+      </div>
+    </div>
+
+    <label class="checkbox-field">
+      <input type="checkbox" id="editPrivate">
+      <span>🔒 非公開にする（管理者のみ閲覧）</span>
+    </label>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('editModal')">キャンセル</button>
+      <button class="btn primary" id="saveBtn" onclick="saveItem()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://eilvdnrjoshikbmtfjzy.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpbHZkbnJqb3NoaWtibXRmanp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTk2MjksImV4cCI6MjA5NDQ5NTYyOX0.wGJjfpylCptcf_sMIZAcrDDGM5l0EkKUj-dtrJuWyhs';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
