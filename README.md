@@ -1,10 +1,382 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    <title>Shinan Gallery</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gallery</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=DM+Mono:wght@300;400&display=swap');
+
+  :root {
+    --bg: #0d0d0d; --surface: #161616; --border: #2a2a2a;
+    --accent: #e8d5b0; --accent2: #c4a97d; --text: #f0ebe0;
+    --muted: #666; --danger: #c0392b;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Shippori Mincho', serif; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 28px 48px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg); z-index: 100;
+  }
+  .logo { font-size: 1.4rem; font-weight: 800; letter-spacing: .15em; color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+
+  #adminBadge {
+    display: none; font-family: 'DM Mono', monospace; font-size: .7rem;
+    letter-spacing: .12em; color: var(--accent2); border: 1px solid var(--accent2);
+    padding: 4px 10px; border-radius: 2px;
+  }
+
+  .btn {
+    font-family: 'DM Mono', monospace; font-size: .75rem; letter-spacing: .1em;
+    padding: 8px 18px; border: 1px solid var(--border); background: transparent;
+    color: var(--muted); cursor: pointer; transition: all .2s; border-radius: 2px;
+  }
+  .btn:hover { border-color: var(--accent2); color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: var(--accent2); border-color: var(--accent2); }
+
+  main { padding: 48px; }
+  .page-title { font-size: .7rem; font-family: 'DM Mono', monospace; letter-spacing: .25em; color: var(--muted); text-transform: uppercase; margin-bottom: 40px; }
+
+  #gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; }
+
+  .card { position: relative; aspect-ratio: 1; overflow: hidden; cursor: pointer; background: var(--surface); }
+  .card img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .5s ease, filter .5s ease; }
+  .card:hover img { transform: scale(1.04); filter: brightness(.6); }
+
+  .card-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end;
+    padding: 20px; opacity: 0; transition: opacity .3s;
+    background: linear-gradient(to top, rgba(0,0,0,.85) 0%, transparent 60%);
+  }
+  .card:hover .card-overlay { opacity: 1; }
+  .card-title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-date { font-family: 'DM Mono', monospace; font-size: .65rem; color: var(--accent2); letter-spacing: .08em; }
+
+  .admin-controls { display: none; position: absolute; top: 10px; right: 10px; gap: 6px; flex-direction: column; }
+  .is-admin .admin-controls { display: flex; }
+  .card:hover .admin-controls { display: flex; }
+
+  .icon-btn { width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: .9rem; transition: all .2s; backdrop-filter: blur(8px); }
+  .icon-btn.edit { background: rgba(232,213,176,.15); color: var(--accent); }
+  .icon-btn.edit:hover { background: rgba(232,213,176,.35); }
+  .icon-btn.del { background: rgba(192,57,43,.15); color: #e07070; }
+  .icon-btn.del:hover { background: rgba(192,57,43,.4); }
+
+  .empty-state { grid-column: 1/-1; text-align: center; padding: 100px 20px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: .8rem; letter-spacing: .1em; }
+
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+  .modal-bg.open { display: flex; }
+
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 40px; width: 100%; max-width: 480px; position: relative; animation: slideUp .25s ease; max-height: 90vh; overflow-y: auto; }
+
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  .modal-close { position: absolute; top: 16px; right: 20px; background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 28px; color: var(--accent); letter-spacing: .05em; }
+
+  .field { margin-bottom: 20px; }
+  .field label { display: block; font-family: 'DM Mono', monospace; font-size: .65rem; letter-spacing: .15em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+  .field input, .field textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: 'Shippori Mincho', serif; font-size: .9rem; border-radius: 2px; outline: none; transition: border-color .2s; }
+  .field input:focus, .field textarea:focus { border-color: var(--accent2); }
+  .field textarea { resize: vertical; min-height: 80px; }
+
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 28px; }
+
+  #detailModal .modal { max-width: 700px; padding: 0; overflow: hidden; max-height: 90vh; display: flex; flex-direction: column; }
+  #detailImg { width: 100%; max-height: 60vh; object-fit: contain; display: block; background: #111; }
+  .detail-body { padding: 32px 40px; overflow-y: auto; flex-shrink: 0; }
+  .detail-title { font-size: 1.6rem; font-weight: 800; margin-bottom: 20px; color: var(--text); }
+  .detail-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .meta-label { font-family: 'DM Mono', monospace; font-size: .6rem; letter-spacing: .2em; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+  .meta-value { font-size: .95rem; color: var(--accent); }
+  .detail-desc { font-size: .9rem; line-height: 1.8; color: #aaa; border-top: 1px solid var(--border); padding-top: 16px; }
+
+  .upload-area { border: 2px dashed var(--border); border-radius: 4px; padding: 30px; text-align: center; cursor: pointer; transition: border-color .2s; margin-bottom: 20px; }
+  .upload-area:hover { border-color: var(--accent2); }
+  .upload-area input[type=file] { display: none; }
+  .upload-area .up-label { font-family: 'DM Mono', monospace; font-size: .7rem; letter-spacing: .1em; color: var(--muted); }
+  #previewImg { max-width: 100%; max-height: 160px; object-fit: contain; margin-top: 12px; display: none; border-radius: 2px; }
+
+  #pwError { color: #e07070; font-family: 'DM Mono', monospace; font-size: .7rem; margin-top: 8px; display: none; }
+
+  .search-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 12px; background: none; border: none; color: var(--muted); font-family: 'DM Mono', monospace; font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; padding: 0; }
+  .search-toggle:hover { color: var(--accent); }
+  .search-toggle .arrow { transition: transform .2s; display: inline-block; }
+  .search-toggle.open .arrow { transform: rotate(180deg); }
+  .search-bar {
+    display: none; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 32px; padding: 16px 20px;
+    border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
+  }
+  .search-bar.open { display: flex; }
+  .search-bar label { font-family: 'DM Mono', monospace; font-size: .62rem; letter-spacing: .15em; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
+  .search-bar input[type=text], .search-bar input[type=date] {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 12px; font-family: 'DM Mono', monospace; font-size: .75rem;
+    border-radius: 2px; outline: none; transition: border-color .2s;
+  }
+  .search-bar input[type=text] { width: 200px; }
+  .search-bar input[type=date] { width: 150px; }
+  .search-bar input:focus { border-color: var(--accent2); }
+  .search-bar .sep { color: var(--muted); font-size: .8rem; }
+  .search-clear { font-family: 'DM Mono', monospace; font-size: .65rem; color: var(--muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
+  .search-clear:hover { color: var(--accent); }
+  .search-count { font-family: 'DM Mono', monospace; font-size: .65rem; color: var(--muted); margin-left: auto; }
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 40px; font-family: 'DM Mono', monospace; font-size: .75rem; color: var(--muted); }
+  .pagination button { font-family: 'DM Mono', monospace; font-size: 1.1rem; background: none; border: 1px solid var(--border); color: var(--muted); width: 36px; height: 36px; border-radius: 2px; cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; }
+  .pagination button:hover:not(:disabled) { border-color: var(--accent2); color: var(--accent); }
+  .pagination button:disabled { opacity: .3; cursor: not-allowed; }
+  .tag-chip { display: inline-block; font-family: 'DM Mono', monospace; font-size: .62rem; color: var(--accent2); background: rgba(196,169,125,.1); border: 1px solid rgba(196,169,125,.25); border-radius: 2px; padding: 2px 7px; cursor: pointer; transition: all .2s; white-space: nowrap; }
+  .tag-chip:hover { background: rgba(196,169,125,.25); border-color: var(--accent2); }
+  .tag-chip.active { background: var(--accent2); color: var(--bg); }
+  .card-tags { position: absolute; bottom: 48px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 4px; opacity: 0; transition: opacity .3s; }
+  .card:hover .card-tags { opacity: 1; }
+  .detail-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tags-input-wrap { position: relative; }
+  .tags-input-wrap textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: 'DM Mono', monospace; font-size: .8rem; border-radius: 2px; outline: none; transition: border-color .2s; resize: vertical; min-height: 70px; }
+  .tags-input-wrap textarea:focus { border-color: var(--accent2); }
+  .tags-hint { font-family: 'DM Mono', monospace; font-size: .6rem; color: var(--muted); margin-top: 4px; }
+  #saveStatus { font-family: 'DM Mono', monospace; font-size: .7rem; color: var(--accent2); margin-right: 10px; display: none; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
 </head>
 <body>
-    <h1>Shinan Gallery</h1>
-    <p>こんにちは</p>
-</body>
-</html>
+
+<header>
+  <div class="logo">GALLERY</div>
+  <div class="header-right">
+    <span id="saveStatus"></span>
+    <span id="adminBadge">ADMIN MODE</span>
+    <button class="btn" id="adminToggleBtn" onclick="openPasswordModal()">管理者ログイン</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">作品一覧</div>
+  <button class="search-toggle" id="searchToggle" onclick="toggleSearch()">
+    <span class="arrow">▼</span> 検索・絞り込み
+  </button>
+  <div class="search-bar" id="searchBar">
+    <label>タイトル</label>
+    <input type="text" id="searchTitle" placeholder="キーワード" oninput="applyFilter()">
+    <label>タグ</label>
+    <input type="text" id="searchTag" placeholder="#VOICEROID" oninput="applyFilter()">
+    <label>日付</label>
+    <input type="date" id="searchFrom" onchange="applyFilter()">
+    <span class="sep">〜</span>
+    <input type="date" id="searchTo" onchange="applyFilter()">
+    <button class="search-clear" onclick="clearFilter()">✕ クリア</button>
+    <span class="search-count" id="searchCount"></span>
+  </div>
+  <div id="tagFilterWrap" style="display:none;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <span style="font-family:'DM Mono',monospace;font-size:.6rem;color:var(--muted);letter-spacing:.1em">TAGS:</span>
+    <div id="tagFilterChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+  <div id="gallery"><div class="empty-state">読み込み中...</div></div>
+  <div class="pagination" id="pagination" style="display:none">
+    <button id="prevBtn" onclick="changePage(-1)">←</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn" onclick="changePage(1)">→</button>
+  </div>
+</main>
+
+<button class="btn primary" id="addBtn" onclick="openAddModal()" style="display:none;position:fixed;bottom:40px;right:48px;z-index:150">＋ 画像を追加</button>
+
+<!-- パスワードモーダル -->
+<div class="modal-bg" id="pwModal">
+  <div class="modal" style="max-width:360px">
+    <button class="modal-close" onclick="closeModal('pwModal')">×</button>
+    <h2>管理者ログイン</h2>
+    <div class="field">
+      <label>パスワード</label>
+      <input type="password" id="pwInput" placeholder="****" onkeydown="if(event.key==='Enter')checkPw()">
+      <div id="pwError">パスワードが違います</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('pwModal')">キャンセル</button>
+      <button class="btn primary" onclick="checkPw()">ログイン</button>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細モーダル -->
+<div class="modal-bg" id="detailModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('detailModal')">×</button>
+    <img id="detailImg" src="" alt="">
+    <div class="detail-body">
+      <div class="detail-title" id="detailTitle"></div>
+      <div class="detail-meta">
+        <div class="meta-item">
+          <div class="meta-label">日付</div>
+          <div class="meta-value" id="detailDate"></div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">制作時間</div>
+          <div class="meta-value" id="detailTime"></div>
+        </div>
+      </div>
+      <div class="detail-desc" id="detailDesc"></div>
+      <div id="detailTags" class="detail-tags"></div>
+      <div id="detailIpvWrap" style="display:none;margin-top:20px">
+        <button class="btn primary" onclick="downloadIpv()">⬇ .ipv をダウンロード</button>
+      </div>
+      <div id="detailEditWrap" style="display:none;margin-top:12px">
+        <button class="btn" onclick="closeModal('detailModal');openEditModal(currentDetailItem.id)">✎ 編集</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 追加・編集モーダル -->
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('editModal')">×</button>
+    <h2 id="editModalTitle">画像を追加</h2>
+
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()" id="uploadArea">
+      <input type="file" id="fileInput" accept="image/*" onchange="previewFile(event)">
+      <div class="up-label">クリックして画像を選択</div>
+      <img id="previewImg" src="" alt="">
+    </div>
+
+    <div class="field">
+      <label>タイトル</label>
+      <input type="text" id="editTitle" placeholder="空白にすると無題N">
+    </div>
+    <div class="field">
+      <label>日付</label>
+      <input type="date" id="editDate">
+    </div>
+    <div class="field">
+      <label>制作時間</label>
+      <input type="text" id="editHours" placeholder="例：3時間30分">
+    </div>
+    <div class="field">
+      <label>メモ・説明</label>
+      <textarea id="editDesc" placeholder="作品についての説明など"></textarea>
+    </div>
+    <div class="field">
+      <label>タグ</label>
+      <div class="tags-input-wrap">
+        <textarea id="editTags" placeholder="VOICEROID&#10;結月ゆかり&#10;イラスト"></textarea>
+        <div class="tags-hint">1行1タグ（#は自動でつきます）</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>アイビスペイントファイル (.ipv)</label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="file" id="ipvFileInput" accept=".ipv" style="display:none" onchange="handleIpvFile(event)">
+        <button class="btn" type="button" onclick="document.getElementById('ipvFileInput').click()">ファイルを選択</button>
+        <span id="ipvFileName" style="font-family:'DM Mono',monospace;font-size:.7rem;color:var(--muted)">未選択</span>
+        <button class="btn" type="button" id="ipvDownloadBtn" onclick="downloadIpvFromEdit()" style="display:none">⬇ DL</button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('editModal')">キャンセル</button>
+      <button class="btn primary" id="saveBtn" onclick="saveItem()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://eilvdnrjoshikbmtfjzy.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpbHZkbnJqb3NoaWtibXRmanp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTk2MjksImV4cCI6MjA5NDQ5NTYyOX0.wGJjfpylCptcf_sMIZAcrDDGM5l0EkKUj-dtrJuWyhs';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const PASS = '0430';
+const PAGE_SIZE = 50;
+let isAdmin = false;
+let items = [];
+let editingId = null;
+let pendingImageFile = null;
+let pendingIpvFile = null;
+let currentDetailItem = null;
+let currentPage = 0;
+
+async function init() {
+  await loadItems();
+}
+
+async function loadItems() {
+  const { data, error } = await sb.from('artworks').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
+  if (error) { console.error(error); document.getElementById('gallery').innerHTML = '<div class="empty-state">読み込みに失敗しました</div>'; return; }
+  items = data || [];
+  currentPage = 0;
+  render();
+}
+
+function getFiltered() {
+  const titleWords = document.getElementById('searchTitle').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t.replace(/^#/, '')).filter(Boolean);
+  const from = document.getElementById('searchFrom').value;
+  const to = document.getElementById('searchTo').value;
+  return items.filter(item => {
+    const titleLower = (item.title || '').toLowerCase();
+    if (titleWords.length && !titleWords.every(w => titleLower.includes(w))) return false;
+    if (tagWords.length) {
+      const tags = (item.tags || []).map(t => t.toLowerCase());
+      if (!tagWords.every(w => tags.some(t => t.includes(w)))) return false;
+    }
+    if (from && item.date && item.date < from) return false;
+    if (to && item.date && item.date > to) return false;
+    return true;
+  });
+}
+
+function applyFilter() { currentPage = 0; render(); }
+
+function clearFilter() {
+  document.getElementById('searchTitle').value = '';
+  document.getElementById('searchTag').value = '';
+  document.getElementById('searchFrom').value = '';
+  document.getElementById('searchTo').value = '';
+  currentPage = 0;
+  render();
+}
+
+function toggleSearch() {
+  const bar = document.getElementById('searchBar');
+  const toggle = document.getElementById('searchToggle');
+  bar.classList.toggle('open');
+  toggle.classList.toggle('open');
+}
+
+function changePage(dir) {
+  const filtered = getFiltered();
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  currentPage = Math.max(0, Math.min(currentPage + dir, totalPages - 1));
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function render() {
+  const g = document.getElementById('gallery');
+  const filtered = getFiltered();
+  const countEl = document.getElementById('searchCount');
+  countEl.textContent = items.length > 0 ? `${filtered.length} / ${items.length}件` : '';
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pag = document.getElementById('pagination');
+  if (totalPages > 1) {
+    pag.style.display = 'flex';
+    document.getElementById('pageInfo').textContent = `${currentPage + 1} / ${totalPages}`;
+    document.getElementById('prevBtn').disabled = currentPage === 0;
+    document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1;
+  } else {
+    pag.style.display = 'none';
+  }
+
+  if (filtered.length === 0) { g.innerHTML = `<div class="empty-state
