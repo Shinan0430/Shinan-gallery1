@@ -353,7 +353,7 @@ async function loadItems() {
     query = query.or('is_private.is.null,is_private.eq.false');
   }
   const { data, error } = await query;
-  if (error) { console.error(error); document.getElementById('gallery').innerHTML = '<div class="empty-state">読み込みに失敗しました</div>'; return; }
+  if (error) { console.error(error); items = []; currentPage = 0; render(); return; }
   items = data || [];
   currentPage = 0;
   render();
@@ -361,4 +361,393 @@ async function loadItems() {
 
 function getFiltered() {
   const titleWords = document.getElementById('searchTitle').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t
+  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t.replace(/^#/, '')).filter(Boolean);
+  const from = document.getElementById('searchFrom').value;
+  const to = document.getElementById('searchTo').value;
+  return items.filter(item => {
+    const titleLower = (item.title || '').toLowerCase();
+    if (titleWords.length && !titleWords.every(w => titleLower.includes(w))) return false;
+    if (tagWords.length) {
+      const tags = (item.tags || []).map(t => t.toLowerCase());
+      if (!tagWords.every(w => tags.some(t => t.includes(w)))) return false;
+    }
+    if (from && item.date && item.date < from) return false;
+    if (to && item.date && item.date > to) return false;
+    return true;
+  });
+}
+
+function applyFilter() { currentPage = 0; render(); }
+
+function clearFilter() {
+  document.getElementById('searchTitle').value = '';
+  document.getElementById('searchTag').value = '';
+  document.getElementById('searchFrom').value = '';
+  document.getElementById('searchTo').value = '';
+  currentPage = 0;
+  render();
+}
+
+function toggleSearch() {
+  const bar = document.getElementById('searchBar');
+  const toggle = document.getElementById('searchToggle');
+  bar.classList.toggle('open');
+  toggle.classList.toggle('open');
+}
+
+function changePage(dir) {
+  const filtered = getFiltered();
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  currentPage = Math.max(0, Math.min(currentPage + dir, totalPages - 1));
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function render() {
+  const g = document.getElementById('gallery');
+  const filtered = getFiltered();
+  const countEl = document.getElementById('searchCount');
+  countEl.textContent = items.length > 0 ? `${filtered.length} / ${items.length}件` : '';
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const pag = document.getElementById('pagination');
+  if (totalPages > 1) {
+    pag.style.display = 'flex';
+    document.getElementById('pageInfo').textContent = `${currentPage + 1} / ${totalPages}`;
+    document.getElementById('prevBtn').disabled = currentPage === 0;
+    document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1;
+  } else {
+    pag.style.display = 'none';
+  }
+
+  if (filtered.length === 0) { g.innerHTML = `<div class="empty-state">${items.length === 0 ? 'まだ作品がありません' : '該当する作品がありません'}</div>`; return; }
+
+  const paged = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  g.innerHTML = paged.map(item => {
+    const imgUrl = item.image_path ? sb.storage.from('images').getPublicUrl(item.image_path).data.publicUrl : '';
+    const tagsHtml = (item.tags || []).length > 0
+      ? `<div class="card-tags">${(item.tags).map(t => `<span class="tag-chip" onclick="event.stopPropagation()">#${t}</span>`).join('')}</div>`
+      : '';
+    const privateBadge = item.is_private ? '<div class="private-badge">🔒 非公開</div>' : '';
+    return `
+      <div class="card" onclick="openDetail('${item.id}')">
+        <img src="${imgUrl}" alt="${item.title || ''}" loading="lazy">
+        <div class="card-overlay">
+          <div class="card-title">${item.title || '無題'}</div>
+          <div class="card-date">${item.date || ''}</div>
+        </div>
+        ${privateBadge}
+        ${tagsHtml}
+        ${isAdmin ? `
+          <div class="admin-controls">
+            <button class="icon-btn edit" onclick="event.stopPropagation();openEditModal('${item.id}')">✎</button>
+            <button class="icon-btn del" onclick="event.stopPropagation();deleteItem('${item.id}')">✕</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+let detailOpenTime = 0;
+let cachedIpvUrl = null;
+let cachedIpvUrlForId = null;
+
+async function prefetchIpvUrl(item) {
+  if (!item?.ipv_path) { cachedIpvUrl = null; cachedIpvUrlForId = null; return; }
+  if (cachedIpvUrlForId === item.id && cachedIpvUrl) return;
+  cachedIpvUrl = null; cachedIpvUrlForId = null;
+  const { data, error } = await sb.storage.from('ipv-files').createSignedUrl(item.ipv_path, 3600);
+  if (!error) { cachedIpvUrl = data.signedUrl; cachedIpvUrlForId = item.id; }
+}
+
+async function openDetail(id) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  currentDetailItem = item;
+  const imgUrl = item.image_path ? sb.storage.from('images').getPublicUrl(item.image_path).data.publicUrl : '';
+  document.getElementById('detailImg').src = imgUrl;
+  document.getElementById('detailTitle').textContent = item.title || '無題';
+  document.getElementById('detailDate').textContent = item.date || '—';
+  document.getElementById('detailTime').textContent = item.hours || '—';
+  document.getElementById('detailDesc').textContent = item.description || '';
+  const tagsEl = document.getElementById('detailTags');
+  tagsEl.innerHTML = (item.tags || []).map(t => `<span class="tag-chip" onclick="tagChipClick('${t}')">#${t}</span>`).join('');
+  document.getElementById('detailIpvWrap').style.display = (isAdmin && item.ipv_path) ? 'block' : 'none';
+  const detailPrivate = document.getElementById('detailPrivateBadge');
+  if (detailPrivate) detailPrivate.style.display = item.is_private ? 'inline' : 'none';
+  document.getElementById('detailEditWrap').style.display = isAdmin ? 'block' : 'none';
+  detailOpenTime = Date.now();
+  openModal('detailModal');
+  if (isAdmin && item.ipv_path) {
+    const dlBtn = document.querySelector('#detailIpvWrap .btn');
+    if (dlBtn && !cachedIpvUrl) {
+      dlBtn.disabled = true;
+      dlBtn.textContent = '⏳ 準備中...';
+      await prefetchIpvUrl(item);
+      dlBtn.disabled = false;
+      dlBtn.textContent = '⬇ .ipv をダウンロード';
+    } else {
+      prefetchIpvUrl(item);
+    }
+  }
+}
+function tagChipClick(tag) {
+  if (Date.now() - detailOpenTime < 400) return;
+  closeModal('detailModal');
+  filterByTag(tag);
+}
+
+function openPasswordModal() {
+  if (isAdmin) { logout(); return; }
+  document.getElementById('pwInput').value = '';
+  document.getElementById('pwError').style.display = 'none';
+  openModal('pwModal');
+  setTimeout(() => document.getElementById('pwInput').focus(), 100);
+}
+
+function checkPw() {
+  if (document.getElementById('pwInput').value === PASS) {
+    isAdmin = true;
+    closeModal('pwModal');
+    document.getElementById('adminBadge').style.display = 'inline';
+    document.getElementById('adminToggleBtn').textContent = 'ログアウト';
+    document.getElementById('addBtn').style.display = 'block';
+    document.getElementById('privateViewBtn').style.display = 'inline-flex';
+    document.getElementById('gallery').classList.add('is-admin');
+    if (currentDetailItem) {
+      document.getElementById('detailIpvWrap').style.display = currentDetailItem.ipv_path ? 'block' : 'none';
+      document.getElementById('detailEditWrap').style.display = 'block';
+      openModal('detailModal');
+    }    render();
+  } else {
+    document.getElementById('pwError').style.display = 'block';
+    document.getElementById('pwInput').value = '';
+    document.getElementById('pwInput').focus();
+  }
+}
+
+function logout() {
+  isAdmin = false;
+  showPrivate = false;
+  document.getElementById('adminBadge').style.display = 'none';
+  document.getElementById('adminToggleBtn').textContent = '管理者ログイン';
+  document.getElementById('addBtn').style.display = 'none';
+  document.getElementById('privateViewBtn').style.display = 'none';
+  document.getElementById('privateViewBtn').classList.remove('active');
+  document.getElementById('privateModeIndicator').style.display = 'none';
+  document.getElementById('pageTitleText').textContent = '作品一覧';
+  document.getElementById('gallery').classList.remove('is-admin');
+  loadItems();
+}
+
+function openAddModal() {
+  editingId = null; pendingImageFile = null; pendingIpvFile = null;
+  document.getElementById('editModalTitle').textContent = '画像を追加';
+  document.getElementById('editTitle').value = '';
+  document.getElementById('editDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('editHours').value = '';
+  document.getElementById('editDesc').value = '';
+  document.getElementById('editTags').value = '';
+  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('previewImg').src = '';
+  document.getElementById('ipvFileName').textContent = '未選択';
+  document.getElementById('editPrivate').checked = false;
+  openModal('editModal');
+}
+
+function openEditModal(id) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  editingId = id; pendingImageFile = null; pendingIpvFile = null;
+  document.getElementById('editModalTitle').textContent = '編集';
+  document.getElementById('editTitle').value = item.title || '';
+  document.getElementById('editDate').value = item.date || '';
+  document.getElementById('editHours').value = item.hours || '';
+  document.getElementById('editDesc').value = item.description || '';
+  document.getElementById('editTags').value = (item.tags || []).join('\n');
+  document.getElementById('ipvFileName').textContent = item.ipv_name || '未選択';
+  document.getElementById('editPrivate').checked = !!item.is_private;
+  document.getElementById('ipvDownloadBtn').style.display = item.ipv_path ? 'inline-block' : 'none';
+  if (item.ipv_path) prefetchIpvUrl(item);
+  const imgUrl = item.image_path ? sb.storage.from('images').getPublicUrl(item.image_path).data.publicUrl : '';
+  const img = document.getElementById('previewImg');
+  img.src = imgUrl; img.style.display = imgUrl ? 'block' : 'none';
+  openModal('editModal');
+}
+
+function previewFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  pendingImageFile = file;
+  const img = document.getElementById('previewImg');
+  img.src = URL.createObjectURL(file); img.style.display = 'block';
+}
+
+function handleIpvFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  pendingIpvFile = file;
+  document.getElementById('ipvFileName').textContent = file.name;
+}
+
+function nextUntitledNumber() {
+  const used = new Set();
+  items.forEach(i => { const m = (i.title || '').match(/^無題(\d+)$/); if (m) used.add(Number(m[1])); });
+  let n = 1; while (used.has(n)) n++; return n;
+}
+
+async function saveItem() {
+  let title = document.getElementById('editTitle').value.trim();
+  const date = document.getElementById('editDate').value;
+  const hours = document.getElementById('editHours').value.trim();
+  const desc = document.getElementById('editDesc').value.trim();
+  const tags = document.getElementById('editTags').value.split('\n').map(t => t.trim().replace(/^#+/, '')).filter(Boolean);
+  const is_private = document.getElementById('editPrivate').checked;
+  const currentItem = editingId ? items.find(i => i.id === editingId) : null;
+
+  if (!editingId && !pendingImageFile) { alert('画像を選択してください'); return; }
+
+  if (!title) {
+    if (editingId && /^無題\d+$/.test(currentItem?.title || '')) {
+      const used = new Set();
+      items.forEach(i => { if (i.id === editingId) return; const m = (i.title || '').match(/^無題(\d+)$/); if (m) used.add(Number(m[1])); });
+      let n = 1; while (used.has(n)) n++;
+      title = `無題${n}`;
+    } else {
+      title = `無題${nextUntitledNumber()}`;
+    }
+  }
+
+  setSaving(true);
+  try {
+    let image_path = currentItem?.image_path || null;
+    let ipv_path = currentItem?.ipv_path || null;
+    let ipv_name = currentItem?.ipv_name || null;
+
+    if (pendingImageFile) {
+      const ext = pendingImageFile.name.split('.').pop();
+      const path = `${Date.now()}.${ext}`;
+      const { error } = await sb.storage.from('images').upload(path, pendingImageFile);
+      if (error) throw error;
+      if (currentItem?.image_path) await sb.storage.from('images').remove([currentItem.image_path]);
+      image_path = path;
+    }
+
+    if (pendingIpvFile) {
+      const safeName = pendingIpvFile.name.replace(/[^\x00-\x7F]/g, '').replace(/\s+/g, '_') || 'file.ipv';
+      const path = `${Date.now()}_${safeName}`;
+      const { error } = await sb.storage.from('ipv-files').upload(path, pendingIpvFile);
+      if (error) throw error;
+      if (currentItem?.ipv_path) await sb.storage.from('ipv-files').remove([currentItem.ipv_path]);
+      ipv_path = path; ipv_name = pendingIpvFile.name;
+    }
+
+    const payload = { title, date, hours, description: desc, image_path, ipv_path, ipv_name, tags, is_private };
+
+    if (editingId) {
+      const { error } = await sb.from('artworks').update(payload).eq('id', editingId);
+      if (error) throw error;
+    } else {
+      const { error } = await sb.from('artworks').insert(payload);
+      if (error) throw error;
+    }
+
+    await loadItems();
+    closeModal('editModal');
+  } catch(e) {
+    alert('保存に失敗しました: ' + e.message);
+  } finally {
+    setSaving(false);
+  }
+}
+
+async function deleteItem(id) {
+  if (!confirm('この作品を削除しますか？')) return;
+  const item = items.find(i => i.id === id);
+  setSaving(true);
+  try {
+    if (item?.image_path) await sb.storage.from('images').remove([item.image_path]);
+    if (item?.ipv_path) await sb.storage.from('ipv-files').remove([item.ipv_path]);
+    const { error } = await sb.from('artworks').delete().eq('id', id);
+    if (error) throw error;
+    await loadItems();
+  } catch(e) {
+    alert('削除に失敗しました: ' + e.message);
+  } finally {
+    setSaving(false);
+  }
+}
+
+async function downloadIpv() {
+  if (!currentDetailItem?.ipv_path) return;
+  const item = currentDetailItem;
+  const dlBtn = document.querySelector('#detailIpvWrap .btn');
+  if (!cachedIpvUrl || cachedIpvUrlForId !== item.id) {
+    if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '⏳ 準備中...'; }
+    await prefetchIpvUrl(item);
+    if (dlBtn) { dlBtn.disabled = false; dlBtn.textContent = '⬇ .ipv をダウンロード'; }
+  }
+  if (!cachedIpvUrl) { alert('ダウンロードに失敗しました'); return; }
+  const a = document.createElement('a'); a.href = cachedIpvUrl; a.download = item.ipv_name || 'file.ipv'; a.click();
+}
+
+async function downloadIpvFromEdit() {
+  const item = editingId ? items.find(i => i.id === editingId) : null;
+  if (!item?.ipv_path) return;
+  const dlBtn = document.getElementById('ipvDownloadBtn');
+  if (!cachedIpvUrl || cachedIpvUrlForId !== item.id) {
+    if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '⏳'; }
+    await prefetchIpvUrl(item);
+    if (dlBtn) { dlBtn.disabled = false; dlBtn.textContent = '⬇ DL'; }
+  }
+  if (!cachedIpvUrl) { alert('ダウンロードに失敗しました'); return; }
+  const a = document.createElement('a'); a.href = cachedIpvUrl; a.download = item.ipv_name || 'file.ipv'; a.click();
+}
+function setSaving(on) {
+  const s = document.getElementById('saveStatus');
+  const b = document.getElementById('saveBtn');
+  s.style.display = on ? 'inline' : 'none';
+  s.textContent = on ? '保存中...' : '';
+  if (b) b.disabled = on;
+}
+
+function togglePrivateMode() {
+  if (!isAdmin) return;
+  showPrivate = !showPrivate;
+  const btn = document.getElementById('privateViewBtn');
+  const indicator = document.getElementById('privateModeIndicator');
+  const titleEl = document.getElementById('pageTitleText');
+  if (showPrivate) {
+    btn.classList.add('active');
+    btn.textContent = '🔒 非公開表示中';
+    indicator.style.display = 'inline';
+    titleEl.textContent = '非公開作品';
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = '🔒 非公開';
+    indicator.style.display = 'none';
+    titleEl.textContent = '作品一覧';
+  }
+  loadItems();
+}
+
+function filterByTag(tag) {
+  const bar = document.getElementById('searchBar');
+  const toggle = document.getElementById('searchToggle');
+  document.getElementById('searchTag').value = tag;
+  bar.classList.add('open');
+  toggle.classList.add('open');
+  currentPage = 0;
+  render();
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('open'); });
+});
+
+init();
+</script>
+</body>
+</html>
