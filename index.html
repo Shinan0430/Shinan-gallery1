@@ -327,7 +327,7 @@
 
 <script>
 const SUPABASE_URL = 'https://eilvdnrjoshikbmtfjzy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_fw5dTeKCmfQQdeIy3Y_Teg_q0MuTH0l';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpbHZkbnJqb3NoaWtibXRmanp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTk2MjksImV4cCI6MjA5NDQ5NTYyOX0.wGJjfpylCptcf_sMIZAcrDDGM5l0EkKUj-dtrJuWyhs';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const PASS = '0430';
@@ -361,7 +361,4 @@ async function loadItems() {
 
 function getFiltered() {
   const titleWords = document.getElementById('searchTitle').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t.replace(/^#/, '')).filter(Boolean);
-  const from = document.getElementById('searchFrom').value;
-  const to = document.getElementById('searchTo').value;
-  return 
+  const tagWords = document.getElementById('searchTag').value.trim().toLowerCase().split(/\s+/).map(t => t
